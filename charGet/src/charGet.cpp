@@ -28,11 +28,10 @@ int main( int argc, char** argv )
 	int flag = 0;		// ループ脱出フラグ
 	int bflag = 1;	// 境界線追跡フラグ（0:非実行, 1:実行)
 	int endFlag = 0;	// 終了フラグ
+	int addFlag = 0;
 
-	// 解析後の結果保持用
-	// struct areaData data[102400];	// データ保持変数（2048でも足りないことがあるかもしれない）
 	vector<struct areaData> data;
-	struct areaData data2[2048];//	データの保持変数（不要な要素を削った後の保持用）
+	struct areaData data2[20480];//	データの保持変数（不要な要素を削った後の保持用）
 	struct areaData tmpData;
 	int count = 0;	// 取得回数
 	int count2 = 0;	// 最終的な取得回数
@@ -167,7 +166,7 @@ int main( int argc, char** argv )
 			}
 
 			// 最大値・最小値座標の出力
-			ofs << count << "-" << bflag << "Area: " << "Min(" << minX << ", " << minY << ") Max(" << maxX << ", " << maxY << ")" << std::endl;
+			// ofs << count << "-" << bflag << "Area: " << "Min(" << minX << ", " << minY << ") Max(" << maxX << ", " << maxY << ")" << std::endl;
 			tmpData.maxX = maxX;
 			tmpData.maxY = maxY;
 			tmpData.minX = minX;
@@ -178,6 +177,7 @@ int main( int argc, char** argv )
 			data.push_back(tmpData);
 			count++;
 		}
+		addFlag = 1;
 		bflag = 1;
 		flag = 0;
 		// 白画素になるまで、探索開始点の座標Xをインクリメント
@@ -190,15 +190,53 @@ int main( int argc, char** argv )
 
 	printf("境界線追跡後：%d\n", count);	// Debug
 
-	//ToDo 最頻値を求める
+	////////////////////////////////////////////////////////////
+	//	縦幅・横幅・最頻値を用いた候補の選定					  //
+	////////////////////////////////////////////////////////////
+	//ToDo	大き過ぎる候補の除外（最頻値のX倍以上？）
 	int maxHeight = 0;	// 縦幅の最大値
 	int maxWidth = 0;		// 横幅の最大値
 	int modeHeight = 0;	// 縦幅の最頻値
 	int modeWidth = 0;	// 横幅の最頻値
+	int tmpHW = 0;		// 処理過程の値
+	// 全候補内の最大縦幅・横幅
 	for(int i=0; i<count; i++){
-
+		if((data[i].maxY - data[i].minY) >= maxHeight) maxHeight = data[i].maxY - data[i].minY;
+		if((data[i].maxX - data[i].minX) >= maxWidth) maxWidth = data[i].maxX - data[i].minX;
 	}
-	//ToDo	大き過ぎる候補の除外（最頻値のX倍以上？）
+	maxHeight++;	// 最大縦幅分の配列を確保するためにインクリメント
+	maxWidth++;	// 最大横幅分の配列を確保するためにインクリメント
+	int *modeHeightTmp = new int[maxHeight]();	// 配列の動的確保＋初期化
+	int *modeWidthTmp = new int[maxWidth]();		// 配列の動的確保＋初期化
+	for(int i=0; i<count; i++){
+		modeHeightTmp[data[i].maxY - data[i].minY]++;
+		modeWidthTmp[data[i].maxX - data[i].minX]++;
+	}
+	// 縦幅の最頻値を取得
+	tmpHW = modeHeightTmp[0];
+	for(int i=1; i<=maxHeight; i++){
+		if(tmpHW < modeHeightTmp[i]){
+			tmpHW = modeHeightTmp[i];
+			modeHeight = i;
+		}
+	}
+	// 横幅の最頻値を取得
+	tmpHW = modeWidthTmp[0];
+	for(int i=1; i<=maxWidth; i++){
+		if(tmpHW < modeWidthTmp[i]){
+			tmpHW = modeWidthTmp[i];
+			modeWidth = i;
+		}
+	}
+	cout << "maxHeight:" << maxHeight << " ,maxWidth:" << maxWidth << endl;		// Debug message
+	cout << "modeHeight:" << modeHeight << " ,modeWidth:" << modeWidth << endl;	// Debug message
+	delete [] modeHeightTmp;	// 動的に確保した配列の解放
+	delete [] modeWidthTmp;	// 動的に確保した配列の解放
+	// 最頻値の二倍より大きいものを除外
+	for(int i=0; i<count; i++){
+		if((data[i].maxX - data[i].minX) > (modeWidth * 2))		data[i].Flag = 0;
+		if((data[i].maxY - data[i].minY) > (modeHeight * 2))		data[i].Flag = 0;
+	}
 
 	////////////////////////////////////////////////////////////
 	//	重複範囲の統合										  //
@@ -294,26 +332,6 @@ int main( int argc, char** argv )
 
 	printf("重複範囲を統合後：%d\n", count2);	// Debug
 
-/*
-	// 大きさによる除外
-	for(int i=0; i<count; i++){
-		if(data[i].Flag){
-			if((data[i].maxX - data[i].minX) >= (ImgSize.width * 0.1)){
-				data[i].Flag = 0;
-			}
-		}
-	}
-	count2 = 0;
-	for(int i=0; i<count; i++){
-		if(data[i].Flag){
-			data2[count2] = data[i];
-			count2++;
-		}
-	}
-
-	printf("大きすぎるデータを除外：%d\n", count2);
-*/
-
 	// 1chのMatを3chのMatに変換
 	cv::Mat dst(image.size(), CV_8UC3);
 	int fromto[] = {0,0, 0,1, 0,2};
@@ -322,6 +340,8 @@ int main( int argc, char** argv )
 	////////////////////////////////////////////////////////////
 	//	文字候補の切り出し・出力								  //
 	////////////////////////////////////////////////////////////
+	//ToDo 前回の結果を削除
+	//ToDo ディレクトリの有無を確認
 	cout << "文字候補画像の切り出し 開始" << endl;	// Debug message
 	char filename[128];	// 切り出しファイル名
 	cv::Mat roi_img;		// 切り出し画像
