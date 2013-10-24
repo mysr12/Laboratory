@@ -37,6 +37,7 @@ int main( int argc, char** argv )
 	int count2 = 0;	// 最終的な取得回数
 
 	std::ofstream ofs("log.txt");
+	// Commit test.
 
 	// エラー処理（コマンドライン引数のエラー処理）
 	if( argc != 2)	{
