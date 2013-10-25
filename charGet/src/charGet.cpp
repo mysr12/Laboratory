@@ -1,6 +1,9 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <dirent.h>
 #include <cv.h>
 #include <highgui.h>
 
@@ -321,18 +324,44 @@ int main( int argc, char** argv )
 	cv::mixChannels(&image_bin, 1, &dst, 3, fromto, 3);
 
 	////////////////////////////////////////////////////////////
+	//	ディレクトリの有無の確認と生成、前回の結果を削除		  //
+	////////////////////////////////////////////////////////////
+	char dirname[] = "img_out";		// 文字画像出力先ディレクトリ
+	struct stat st;	// stat関数で得られる情報の保持
+	struct dirent *dist;
+
+	if(stat(dirname, &st) != 0){	// 成功:0,失敗:-1
+		// ディレクトリが存在しない場合、dirnameの文字列でディレクトリを生成する
+		mkdir(dirname, 0775);
+		cout << "ディレクトリ " << dirname << " を生成しました" << endl;		// Debug message
+	}else{
+		// ディレクトリが存在する場合、中身を全て削除する（前回の結果）
+		DIR *dp = opendir(dirname);
+
+		while((dist = readdir(dp)) != NULL){
+			char removePath[64];
+			sprintf(removePath, "%s/%s", dirname, dist->d_name);
+			remove(removePath);
+		}
+
+		closedir(dp);
+		cout<< "前回実行時の出力結果（文字画像）を削除しました" << endl;
+	}
+
+	////////////////////////////////////////////////////////////
 	//	文字候補の切り出し・出力								  //
 	////////////////////////////////////////////////////////////
-	//ToDo 前回の結果を削除
-	//ToDo ディレクトリの有無を確認
 	cout << "文字候補画像の切り出し 開始" << endl;	// Debug message
+
 	char filename[128];	// 切り出しファイル名
 	cv::Mat roi_img;		// 切り出し画像
+
 	for(int i=0; i<count2; i++){
 		sprintf(filename, "img_out/%d.png", i);
 		cv::Mat roi_img(image_bin, cv::Rect(data2[i].minX, data2[i].minY, data2[i].maxX-data2[i].minX+1, data2[i].maxY-data2[i].minY+1));	// 画像の切り出し
-		cv::imwrite(filename, roi_img);	// ファイルの書き出し
+		cout << cv::imwrite(filename, roi_img) << endl;	// ファイルの書き出し
 	}
+
 	cout << "文字候補画像の切り出し 終了" << endl;	// Debug message
 
 	////////////////////////////////////////////////////////////
