@@ -19,7 +19,6 @@ struct areaData{
 int main( int argc, char** argv )
 {
 	cv::Mat image, image_bin;	// 元画像, 二値化画像
-	int imgHeight, imgWidth;		// 画像の縦幅, 画像の横幅
 	int minX, minY;	// 境界線追跡で得た座標の最小値
 	int maxX, maxY;	// 境界線追跡で得た座標の最大値
 	int sx, sy;		// 境界線追跡開始点
@@ -28,16 +27,12 @@ int main( int argc, char** argv )
 	int flag = 0;		// ループ脱出フラグ
 	int bflag = 1;	// 境界線追跡フラグ（0:非実行, 1:実行)
 	int endFlag = 0;	// 終了フラグ
-	int addFlag = 0;
 
 	vector<struct areaData> data;
 	struct areaData data2[20480];//	データの保持変数（不要な要素を削った後の保持用）
 	struct areaData tmpData;
 	int count = 0;	// 取得回数
 	int count2 = 0;	// 最終的な取得回数
-
-	std::ofstream ofs("log.txt");
-	// Commit test.
 
 	// エラー処理（コマンドライン引数のエラー処理）
 	if( argc != 2)	{
@@ -56,20 +51,12 @@ int main( int argc, char** argv )
 	// 画像の二値化
 	cv::threshold(image, image_bin, 0, 255, cv::THRESH_BINARY|cv::THRESH_OTSU);
 
-	IplImage iplImage = image;	// Mat型をIplImage型に変換
-	CvSize ImgSize = cvGetSize(&iplImage);	// 画像サイズの取得
-
-	ofs << "Image Size: " << ImgSize.width << " x " << ImgSize.height << std::endl;
-
-	imgHeight = ImgSize.height;	// 画像の縦幅
-	imgWidth = ImgSize.width;	// 画像の横幅
-
 	sx = sy = 0;	// 境界線追跡開始点の初期化
 
 	while(!endFlag){
 		// 始点の取得（ラスタスキャン順）
-		for(int i=sy; i<imgHeight; i++){
-			for(int j=sx; j<imgWidth; j++){
+		for(int i=sy; i<image.rows; i++){
+			for(int j=sx; j<image.cols; j++){
 				if(image_bin.at<unsigned char>(i, j) == 0){
 					sx = px = maxX = minX = j;
 					sy = py = maxY = minY = i;
@@ -77,7 +64,7 @@ int main( int argc, char** argv )
 					break;
 				}
 				// 終了条件(探索箇所が対象の最も右下の位置ならば)
-				if(i==imgHeight-1 && j==imgWidth-1){
+				if(i==image.rows-1 && j==image.cols-1){
 					endFlag = 1;
 					flag = 1;
 					bflag = 0;
@@ -89,8 +76,6 @@ int main( int argc, char** argv )
 		}
 
 		if(bflag){
-			ofs << "Start Point: " << "(" << sx << ", " << sy << ")" << std::endl;
-
 			while(flag){
 				switch(op){
 					case 0:	// 左上
@@ -167,7 +152,6 @@ int main( int argc, char** argv )
 			}
 
 			// 最大値・最小値座標の出力
-			// ofs << count << "-" << bflag << "Area: " << "Min(" << minX << ", " << minY << ") Max(" << maxX << ", " << maxY << ")" << std::endl;
 			tmpData.maxX = maxX;
 			tmpData.maxY = maxY;
 			tmpData.minX = minX;
@@ -178,7 +162,6 @@ int main( int argc, char** argv )
 			data.push_back(tmpData);
 			count++;
 		}
-		addFlag = 1;
 		bflag = 1;
 		flag = 0;
 		// 白画素になるまで、探索開始点の座標Xをインクリメント
@@ -194,7 +177,6 @@ int main( int argc, char** argv )
 	////////////////////////////////////////////////////////////
 	//	縦幅・横幅・最頻値を用いた候補の選定					  //
 	////////////////////////////////////////////////////////////
-	//ToDo	大き過ぎる候補の除外（最頻値のX倍以上？）
 	int maxHeight = 0;	// 縦幅の最大値
 	int maxWidth = 0;		// 横幅の最大値
 	int modeHeight = 0;	// 縦幅の最頻値
@@ -235,8 +217,8 @@ int main( int argc, char** argv )
 	delete [] modeWidthTmp;	// 動的に確保した配列の解放
 	// 最頻値の二倍より大きいものを除外
 	for(int i=0; i<count; i++){
-		if((data[i].maxX - data[i].minX) > (modeWidth * 2))		data[i].Flag = 0;
-		if((data[i].maxY - data[i].minY) > (modeHeight * 2))		data[i].Flag = 0;
+		if((data[i].maxX - data[i].minX) > (modeWidth * 2.5))		data[i].Flag = 0;
+		if((data[i].maxY - data[i].minY) > (modeHeight * 2.5))		data[i].Flag = 0;
 	}
 
 	////////////////////////////////////////////////////////////
