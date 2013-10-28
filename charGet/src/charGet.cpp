@@ -24,47 +24,60 @@ int main( int argc, char** argv )
 	cv::Mat image, image_bin;	// 元画像, 二値化画像
 	int minX, minY;	// 境界線追跡で得た座標の最小値
 	int maxX, maxY;	// 境界線追跡で得た座標の最大値
-	int sx, sy;		// 境界線追跡開始点
+	int sx=0, sy=0;	// 境界線追跡開始点
 	int px, py;		// 境界線追跡中の現在地
 	int op = 2;		// 境界線追跡中の次に探索する方向
 	int flag = 0;		// ループ脱出フラグ
 	int bflag = 1;	// 境界線追跡フラグ（0:非実行, 1:実行)
 	int endFlag = 0;	// 終了フラグ
-
-	vector<struct areaData> data;
-	struct areaData data2[20480];//	データの保持変数（不要な要素を削った後の保持用）
-	struct areaData tmpData;
+	vector<struct areaData> data;	// 文字候補データの保持変数(1)
+	struct areaData data2[204800];	// 文字候補データの保持変数(2) … 最終的な結果はコチラに入っていなければならない
+	struct areaData tmpData;		// 文字候補データの一時保持変数 … 処理中に使用
 	int count = 0;	// 取得回数
 	int count2 = 0;	// 最終的な取得回数
 
-	// エラー処理（コマンドライン引数のエラー処理）
+	ofstream ofs("log.txt");
+
+
+	////////////////////////////////////////////////////////////
+	//	コマンドライン引数を確認（画像名)						  //
+	////////////////////////////////////////////////////////////
 	if( argc != 2)	{
 		printf( "Usage: OpenCV_test2 filename\n" );
 		return -1;
 	}
 
-	// 画像の読み込み
+
+	////////////////////////////////////////////////////////////
+	//	画像の読み込み										  //
+	////////////////////////////////////////////////////////////
 	image = cv::imread(argv[1], 0);
+
 	// エラー処理（Matに正しく画像が読み込まれていない場合のエラー処理）
 	if(image.empty()){	// cv::Mat.empty() 行列にデータが確保されてない場合true
 		printf( "No image data\n" );
 		return -1;
 	}
 
-	// 画像の二値化
-	cv::threshold(image, image_bin, 0, 255, cv::THRESH_BINARY|cv::THRESH_OTSU);
+	cv::threshold(image, image_bin, 0, 255, cv::THRESH_BINARY|cv::THRESH_OTSU);	// 画像の二値化
 
-	sx = sy = 0;	// 境界線追跡開始点の初期化
 
+	////////////////////////////////////////////////////////////
+	//	境界線追跡											  //
+	////////////////////////////////////////////////////////////
 	while(!endFlag){
 		// 始点の取得（ラスタスキャン順）
 		for(int i=sy; i<image.rows; i++){
 			for(int j=sx; j<image.cols; j++){
 				if(image_bin.at<unsigned char>(i, j) == 0){
-					sx = px = maxX = minX = j;
-					sy = py = maxY = minY = i;
-					flag = 1;
-					break;
+					if((image_bin.at<unsigned char>(i-1, j) == 1) || (image_bin.at<unsigned char>(i, j-1) == 1) || (image_bin.at<unsigned char>(i+1, j) == 1) || (image_bin.at<unsigned char>(i, j+1) == 1)){
+						image_bin.at<unsigned char>(i, j) = 1;
+					}else{
+						sx = px = maxX = minX = j;
+						sy = py = maxY = minY = i;
+						flag = 1;
+						break;
+					}
 				}
 				// 終了条件(探索箇所が対象の最も右下の位置ならば)
 				if(i==image.rows-1 && j==image.cols-1){
@@ -82,7 +95,7 @@ int main( int argc, char** argv )
 			while(flag){
 				switch(op){
 					case 0:	// 左上
-						if(image_bin.at<unsigned char>(py-1, px-1) == 0){
+						if(image_bin.at<unsigned char>(py-1, px-1) != 255){
 							px = px - 1;
 							py = py - 1;
 							op = 6;
@@ -90,14 +103,14 @@ int main( int argc, char** argv )
 						}
 						/* no break */
 					case 1:	// 左
-						if(image_bin.at<unsigned char>(py, px-1) == 0){
+						if(image_bin.at<unsigned char>(py, px-1) != 255){
 							px = px - 1;
 							op = 0;
 							break;
 						}
 						/* no break */
 					case 2:	// 左下
-						if(image_bin.at<unsigned char>(py+1, px-1) == 0){
+						if(image_bin.at<unsigned char>(py+1, px-1) != 255){
 							px = px - 1;
 							py = py + 1;
 							op = 0;
@@ -105,14 +118,14 @@ int main( int argc, char** argv )
 						}
 						/* no break */
 					case 3:	// 下
-						if(image_bin.at<unsigned char>(py+1, px) == 0){
+						if(image_bin.at<unsigned char>(py+1, px) != 255){
 							py = py + 1;
 							op = 2;
 							break;
 						}
 						/* no break */
 					case 4:	// 右下
-						if(image_bin.at<unsigned char>(py+1, px+1) == 0){
+						if(image_bin.at<unsigned char>(py+1, px+1) != 255){
 							px = px + 1;
 							py = py + 1;
 							op = 2;
@@ -120,14 +133,14 @@ int main( int argc, char** argv )
 						}
 						/* no break */
 					case 5:	// 右
-						if(image_bin.at<unsigned char>(py, px+1) == 0){
+						if(image_bin.at<unsigned char>(py, px+1) != 255){
 							px = px + 1;
 							op = 4;
 							break;
 						}
 						/* no break */
 					case 6:	// 右上
-						if(image_bin.at<unsigned char>(py-1, px+1) == 0){
+						if(image_bin.at<unsigned char>(py-1, px+1) != 255){
 							px = px + 1;
 							py = py - 1;
 							op = 4;
@@ -135,7 +148,7 @@ int main( int argc, char** argv )
 						}
 						/* no break */
 					case 7:	// 上
-						if(image_bin.at<unsigned char>(py-1, px) == 0){
+						if(image_bin.at<unsigned char>(py-1, px) != 255){
 							py = py - 1;
 							op = 6;
 							break;
@@ -150,6 +163,8 @@ int main( int argc, char** argv )
 				if(px <= minX) minX = px;
 				if(py <= minY) minY = py;
 
+				image_bin.at<unsigned char>(py, px) = 1;
+
 				// 終了条件確認
 				if(px==sx && py==sy) flag = 0;
 			}
@@ -162,20 +177,20 @@ int main( int argc, char** argv )
 			tmpData.sx = sx;
 			tmpData.sy = sy;
 			tmpData.Flag = 1;
-			data.push_back(tmpData);
+			data.push_back(tmpData);	// dataの末尾に探索結果を追加
 			count++;
+
+			// ofs << tmpData.maxX - tmpData.minX << endl;
 		}
 		bflag = 1;
 		flag = 0;
 		// 白画素になるまで、探索開始点の座標Xをインクリメント
-		while(1){
-			if(image_bin.at<unsigned char>(sy, sx) == 255) break;
-			sx++;
-		}
+
 		op = 2;		// 境界線追跡中の次に探索する方向を初期化
 	}
 
 	printf("境界線追跡後：%d\n", count);	// Debug
+
 
 	////////////////////////////////////////////////////////////
 	//	縦幅・横幅・最頻値を用いた候補の選定					  //
@@ -198,6 +213,7 @@ int main( int argc, char** argv )
 		modeHeightTmp[data[i].maxY - data[i].minY]++;
 		modeWidthTmp[data[i].maxX - data[i].minX]++;
 	}
+	for(int i=0; i<maxHeight; i++)	cout << i << " : " << modeHeightTmp[i] << endl;
 	// 縦幅の最頻値を取得
 	tmpHW = modeHeightTmp[0];
 	for(int i=1; i<=maxHeight; i++){
@@ -218,12 +234,15 @@ int main( int argc, char** argv )
 	cout << "modeHeight:" << modeHeight << " ,modeWidth:" << modeWidth << endl;	// Debug message
 	delete [] modeHeightTmp;	// 動的に確保した配列の解放
 	delete [] modeWidthTmp;	// 動的に確保した配列の解放
+	/*
 	// 最頻値の二倍より大きいものを除外
 	for(int i=0; i<count; i++){
 		if((data[i].maxX - data[i].minX) > (modeWidth * 2.5))		data[i].Flag = 0;
 		if((data[i].maxY - data[i].minY) > (modeHeight * 2.5))		data[i].Flag = 0;
 	}
 
+
+/*
 	////////////////////////////////////////////////////////////
 	//	重複範囲の統合										  //
 	////////////////////////////////////////////////////////////
@@ -306,6 +325,7 @@ int main( int argc, char** argv )
 		}
 		if(!mFlag) break;
 	}
+*/
 	cout << "重複範囲の統合 終了" << endl;	// Debug message
 
 	// 最終結果の格納と、数のカウント
@@ -322,6 +342,7 @@ int main( int argc, char** argv )
 	cv::Mat dst(image.size(), CV_8UC3);
 	int fromto[] = {0,0, 0,1, 0,2};
 	cv::mixChannels(&image_bin, 1, &dst, 3, fromto, 3);
+
 
 	////////////////////////////////////////////////////////////
 	//	ディレクトリの有無の確認と生成、前回の結果を削除		  //
@@ -348,6 +369,7 @@ int main( int argc, char** argv )
 		cout<< "前回実行時の出力結果（文字画像）を削除しました" << endl;
 	}
 
+
 	////////////////////////////////////////////////////////////
 	//	文字候補の切り出し・出力								  //
 	////////////////////////////////////////////////////////////
@@ -359,17 +381,19 @@ int main( int argc, char** argv )
 	for(int i=0; i<count2; i++){
 		sprintf(filename, "img_out/%d.png", i);
 		cv::Mat roi_img(image_bin, cv::Rect(data2[i].minX, data2[i].minY, data2[i].maxX-data2[i].minX+1, data2[i].maxY-data2[i].minY+1));	// 画像の切り出し
-		cout << cv::imwrite(filename, roi_img) << endl;	// ファイルの書き出し
+		cv::imwrite(filename, roi_img);	// ファイルの書き出し
 	}
 
 	cout << "文字候補画像の切り出し 終了" << endl;	// Debug message
+
 
 	////////////////////////////////////////////////////////////
 	//	文字候補枠の描画										  //
 	////////////////////////////////////////////////////////////
 	for(int i=0; i<count2; i++){
-		cv::rectangle(dst, cv::Point(data2[i].minX, data2[i].minY), cv::Point(data2[i].maxX, data2[i].maxY), cv::Scalar(0, 0, 200), 1, 4);
+		if((data2[i].maxX - data2[i].minX) == 5)	cv::rectangle(dst, cv::Point(data2[i].minX, data2[i].minY), cv::Point(data2[i].maxX, data2[i].maxY), cv::Scalar(0, 0, 200), 1, 4);
 	}
+
 
 	////////////////////////////////////////////////////////////
 	//	最終結果の出力										  //
