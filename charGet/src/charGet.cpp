@@ -19,6 +19,9 @@ struct areaData{
 	int Flag;	// 要素の有効／無効の判断
 };
 
+void hwHist(vector<struct areaData> data, int count);	// ヒストグラム生成
+void areaRepeateMerge(vector<struct areaData> &data, int count);
+
 int main( int argc, char** argv )
 {
 	cv::Mat image, image_bin;	// 元画像, 二値化画像
@@ -31,12 +34,10 @@ int main( int argc, char** argv )
 	int bflag = 1;	// 境界線追跡フラグ（0:非実行, 1:実行)
 	int endFlag = 0;	// 終了フラグ
 	vector<struct areaData> data;	// 文字候補データの保持変数(1)
-	struct areaData data2[204800];	// 文字候補データの保持変数(2) … 最終的な結果はコチラに入っていなければならない
+	vector<struct areaData> data2;	// 文字候補データの保持変数(2) … 最終的な結果はコチラに入っていなければならない
 	struct areaData tmpData;		// 文字候補データの一時保持変数 … 処理中に使用
 	int count = 0;	// 取得回数
 	int count2 = 0;	// 最終的な取得回数
-
-	ofstream ofs("log.txt");
 
 
 	////////////////////////////////////////////////////////////
@@ -179,13 +180,9 @@ int main( int argc, char** argv )
 			tmpData.Flag = 1;
 			data.push_back(tmpData);	// dataの末尾に探索結果を追加
 			count++;
-
-			// ofs << tmpData.maxX - tmpData.minX << endl;
 		}
 		bflag = 1;
 		flag = 0;
-		// 白画素になるまで、探索開始点の座標Xをインクリメント
-
 		op = 2;		// 境界線追跡中の次に探索する方向を初期化
 	}
 
@@ -193,61 +190,181 @@ int main( int argc, char** argv )
 
 
 	////////////////////////////////////////////////////////////
-	//	縦幅・横幅・最頻値を用いた候補の選定					  //
+	//	重複範囲の統合										  //
 	////////////////////////////////////////////////////////////
-	int maxHeight = 0;	// 縦幅の最大値
-	int maxWidth = 0;		// 横幅の最大値
-	int modeHeight = 0;	// 縦幅の最頻値
-	int modeWidth = 0;	// 横幅の最頻値
-	int tmpHW = 0;		// 処理過程の値
-	// 全候補内の最大縦幅・横幅
+	cout << "重複範囲の統合 開始" << endl;	// Debug message
+
+	areaRepeateMerge(data, count);
+
+	cout << "重複範囲の統合 終了" << endl;	// Debug message
+
+	// 最終結果の格納と、数のカウント
+	for(int i=0; i<count; i++){
+		if(data[i].Flag){
+			data2.push_back(data[i]);
+			count2++;
+		}
+	}
+
+	printf("重複範囲を統合後：%d\n", count2);	// Debug
+
+	hwHist(data2, count2);
+
+
+	////////////////////////////////////////////////////////////
+	//	ディレクトリの有無の確認と生成、前回の結果を削除		  //
+	////////////////////////////////////////////////////////////
+	char dirname[] = "img_out";		// 文字画像出力先ディレクトリ
+	struct stat st;	// stat関数で得られる情報の保持
+	struct dirent *dist;
+
+	if(stat(dirname, &st) != 0){	// 成功:0,失敗:-1
+		// ディレクトリが存在しない場合、dirnameの文字列でディレクトリを生成する
+		mkdir(dirname, 0775);	// ディレクトリの生成
+		cout << "ディレクトリ " << dirname << " を生成しました" << endl;		// Debug message
+	}else{
+		// ディレクトリが存在する場合、中身を全て削除する（前回の結果）
+		DIR *dp = opendir(dirname);
+
+		while((dist = readdir(dp)) != NULL){
+			char removePath[64];
+			sprintf(removePath, "%s/%s", dirname, dist->d_name);
+			remove(removePath);
+		}
+
+		closedir(dp);
+		cout<< "前回実行時の出力結果（文字画像）を削除しました" << endl;
+	}
+
+
+	////////////////////////////////////////////////////////////
+	//	文字候補の切り出し・出力								  //
+	////////////////////////////////////////////////////////////
+	cout << "文字候補画像の切り出し 開始" << endl;	// Debug message
+
+	char filename[128];	// 切り出しファイル名
+	cv::Mat roi_img;		// 切り出し画像
+
+	for(int i=0; i<count2; i++){
+		sprintf(filename, "img_out/%d.png", i);
+		cv::Mat roi_img(image_bin, cv::Rect(data2[i].minX, data2[i].minY, data2[i].maxX-data2[i].minX+1, data2[i].maxY-data2[i].minY+1));	// 画像の切り出し
+		cv::imwrite(filename, roi_img);	// ファイルの書き出し
+	}
+
+	cout << "文字候補画像の切り出し 終了" << endl;	// Debug message
+
+
+	////////////////////////////////////////////////////////////
+	//	文字候補枠の描画										  //
+	////////////////////////////////////////////////////////////
+	// 1chのMatを3chのMatに変換
+	cv::Mat dst(image.size(), CV_8UC3);
+	int fromto[] = {0,0, 0,1, 0,2};
+	cv::mixChannels(&image_bin, 1, &dst, 1, fromto, 3);
+
+	for(int i=0; i<count2; i++){
+		if((data2[i].maxX - data2[i].minX) == 5)	cv::rectangle(dst, cv::Point(data2[i].minX, data2[i].minY), cv::Point(data2[i].maxX, data2[i].maxY), cv::Scalar(0, 0, 200), 1, 4);
+	}
+
+	for(int i=0; i<count2; i++)	cout << i << " - " << data2[i].minX << " : " <<data2[i].maxX << endl;
+
+	////////////////////////////////////////////////////////////
+	//	最終結果の出力										  //
+	////////////////////////////////////////////////////////////
+	imwrite("Result_image.png", dst);
+
+	return 0;
+}
+
+void hwHist(vector<struct areaData> data, int count){
+	int maxHeight = 0;
+	int maxWidth	= 0;
+	char dirname[] = "histimg_out";	// 結果の出力先ディレクト名
+	char outPath[64];		// 結果の「出力先ディレクト名＋ファイル名」一時保持変数
+	struct stat st;		// stat関数で得られる情報の保持変数
+	struct dirent *dist;	// ディレクトリ内のエントリー
+
+
+	////////////////////////////////////////////////////////////
+	//	前回の結果を削除										  //
+	////////////////////////////////////////////////////////////
+	if(stat(dirname, &st) == 0){
+		DIR *dp = opendir(dirname);
+
+		while((dist = readdir(dp)) != NULL){
+			char removePath[64];
+			sprintf(removePath, "%s/%s", dirname, dist->d_name);
+			remove(removePath);
+		}
+
+		closedir(dp);
+	}
+
+
+	////////////////////////////////////////////////////////////
+	//	結果出力先の確認・生成								  //
+	////////////////////////////////////////////////////////////
+	if(stat(dirname, &st) !=0){	// 戻り値（成功:0, 失敗:-1)
+		mkdir(dirname, 0775);
+		cout << "ディレクトリ " << dirname << " を生成しました。" << endl;
+	}else{
+		cout << "ディレクトリ " << dirname << " は生成済みです。" << endl;
+	}
+
 	for(int i=0; i<count; i++){
 		if((data[i].maxY - data[i].minY) >= maxHeight) maxHeight = data[i].maxY - data[i].minY;
 		if((data[i].maxX - data[i].minX) >= maxWidth) maxWidth = data[i].maxX - data[i].minX;
 	}
-	maxHeight++;	// 最大縦幅分の配列を確保するためにインクリメント
-	maxWidth++;	// 最大横幅分の配列を確保するためにインクリメント
-	int *modeHeightTmp = new int[maxHeight]();	// 配列の動的確保＋初期化
-	int *modeWidthTmp = new int[maxWidth]();		// 配列の動的確保＋初期化
-	for(int i=0; i<count; i++){
-		modeHeightTmp[data[i].maxY - data[i].minY]++;
-		modeWidthTmp[data[i].maxX - data[i].minX]++;
-	}
-	for(int i=0; i<maxHeight; i++)	cout << i << " : " << modeHeightTmp[i] << endl;
-	// 縦幅の最頻値を取得
-	tmpHW = modeHeightTmp[0];
-	for(int i=1; i<=maxHeight; i++){
-		if(tmpHW < modeHeightTmp[i]){
-			tmpHW = modeHeightTmp[i];
-			modeHeight = i;
-		}
-	}
-	// 横幅の最頻値を取得
-	tmpHW = modeWidthTmp[0];
-	for(int i=1; i<=maxWidth; i++){
-		if(tmpHW < modeWidthTmp[i]){
-			tmpHW = modeWidthTmp[i];
-			modeWidth = i;
-		}
-	}
-	cout << "maxHeight:" << maxHeight << " ,maxWidth:" << maxWidth << endl;		// Debug message
-	cout << "modeHeight:" << modeHeight << " ,modeWidth:" << modeWidth << endl;	// Debug message
-	delete [] modeHeightTmp;	// 動的に確保した配列の解放
-	delete [] modeWidthTmp;	// 動的に確保した配列の解放
-	/*
-	// 最頻値の二倍より大きいものを除外
-	for(int i=0; i<count; i++){
-		if((data[i].maxX - data[i].minX) > (modeWidth * 2.5))		data[i].Flag = 0;
-		if((data[i].maxY - data[i].minY) > (modeHeight * 2.5))		data[i].Flag = 0;
-	}
+
+	maxHeight++;
+	maxWidth++;
+
+	int *histHeight = new int[maxHeight]();	// 配列の動的確保＋初期化
+	int *histWidth = new int[maxWidth]();		// 配列の動的確保＋初期化
 
 
-/*
 	////////////////////////////////////////////////////////////
-	//	重複範囲の統合										  //
+	//	縦幅と横幅のヒストグラム								  //
 	////////////////////////////////////////////////////////////
-	cout << "重複範囲の統合 開始" << endl;	// Debug message
+	for(int i=0; i<count; i++){
+		histHeight[data[i].maxY - data[i].minY]++;
+		histWidth[data[i].maxX - data[i].minX]++;
+	}
+
+	cv::Mat hist_img_row(cv::Size(maxHeight, 512), CV_8U, cv::Scalar::all(255));	// 縦幅のヒストグラム変数
+	cv::Mat hist_img_col(cv::Size(maxWidth, 512), CV_8U, cv::Scalar::all(255));	// 横d幅のヒストグラム変数
+
+	// ヒストグラムの描画
+	for(int i=0; i<maxHeight; i++){
+		for(int j=0; j<histHeight[i]; j++)	hist_img_row.at<unsigned char>(j, i) = 0;
+	}
+	for(int i=0; i<maxWidth; i++){
+		for(int j=0; j<histWidth[i]; j++)	hist_img_col.at<unsigned char>(j, i) = 0;
+	}
+
+	cv::flip(hist_img_row, hist_img_row, 0);	// 水平方向反転
+	cv::flip(hist_img_col, hist_img_col, 0);	// 水平方向反転
+
+
+	////////////////////////////////////////////////////////////
+	//	画像の出力											  //
+	////////////////////////////////////////////////////////////
+	sprintf(outPath, "%s/histimg_row.bmp", dirname);
+	cv::imwrite(outPath, hist_img_row);
+	sprintf(outPath, "%s/histimg_col.bmp", dirname);
+	cv::imwrite(outPath, hist_img_col);
+
+
+	////////////////////////////////////////////////////////////
+	//	解放													  //
+	////////////////////////////////////////////////////////////
+	delete [] histHeight;
+	delete [] histWidth;
+}
+
+void areaRepeateMerge(vector<struct areaData> &data, int count){
 	int mFlag;	// 統合した要素が一つでもあるならば、フラグを立ててループを抜けない
+
 	while(1){
 		mFlag = 0;
 		for(int i=0; i<count; i++){
@@ -325,80 +442,4 @@ int main( int argc, char** argv )
 		}
 		if(!mFlag) break;
 	}
-*/
-	cout << "重複範囲の統合 終了" << endl;	// Debug message
-
-	// 最終結果の格納と、数のカウント
-	for(int i=0; i<count; i++){
-		if(data[i].Flag){
-			data2[count2] = data[i];
-			count2++;
-		}
-	}
-
-	printf("重複範囲を統合後：%d\n", count2);	// Debug
-
-	// 1chのMatを3chのMatに変換
-	cv::Mat dst(image.size(), CV_8UC3);
-	int fromto[] = {0,0, 0,1, 0,2};
-	cv::mixChannels(&image_bin, 1, &dst, 3, fromto, 3);
-
-
-	////////////////////////////////////////////////////////////
-	//	ディレクトリの有無の確認と生成、前回の結果を削除		  //
-	////////////////////////////////////////////////////////////
-	char dirname[] = "img_out";		// 文字画像出力先ディレクトリ
-	struct stat st;	// stat関数で得られる情報の保持
-	struct dirent *dist;
-
-	if(stat(dirname, &st) != 0){	// 成功:0,失敗:-1
-		// ディレクトリが存在しない場合、dirnameの文字列でディレクトリを生成する
-		mkdir(dirname, 0775);
-		cout << "ディレクトリ " << dirname << " を生成しました" << endl;		// Debug message
-	}else{
-		// ディレクトリが存在する場合、中身を全て削除する（前回の結果）
-		DIR *dp = opendir(dirname);
-
-		while((dist = readdir(dp)) != NULL){
-			char removePath[64];
-			sprintf(removePath, "%s/%s", dirname, dist->d_name);
-			remove(removePath);
-		}
-
-		closedir(dp);
-		cout<< "前回実行時の出力結果（文字画像）を削除しました" << endl;
-	}
-
-
-	////////////////////////////////////////////////////////////
-	//	文字候補の切り出し・出力								  //
-	////////////////////////////////////////////////////////////
-	cout << "文字候補画像の切り出し 開始" << endl;	// Debug message
-
-	char filename[128];	// 切り出しファイル名
-	cv::Mat roi_img;		// 切り出し画像
-
-	for(int i=0; i<count2; i++){
-		sprintf(filename, "img_out/%d.png", i);
-		cv::Mat roi_img(image_bin, cv::Rect(data2[i].minX, data2[i].minY, data2[i].maxX-data2[i].minX+1, data2[i].maxY-data2[i].minY+1));	// 画像の切り出し
-		cv::imwrite(filename, roi_img);	// ファイルの書き出し
-	}
-
-	cout << "文字候補画像の切り出し 終了" << endl;	// Debug message
-
-
-	////////////////////////////////////////////////////////////
-	//	文字候補枠の描画										  //
-	////////////////////////////////////////////////////////////
-	for(int i=0; i<count2; i++){
-		if((data2[i].maxX - data2[i].minX) == 5)	cv::rectangle(dst, cv::Point(data2[i].minX, data2[i].minY), cv::Point(data2[i].maxX, data2[i].maxY), cv::Scalar(0, 0, 200), 1, 4);
-	}
-
-
-	////////////////////////////////////////////////////////////
-	//	最終結果の出力										  //
-	////////////////////////////////////////////////////////////
-	imwrite("Result_image.png", dst);
-
-	return 0;
 }
