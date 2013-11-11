@@ -19,14 +19,14 @@ struct areaData{
 	int Flag;	// 要素の有効／無効の判断
 };
 
-void hwHist(vector<struct areaData> data, int count);	// ヒストグラム生成
-void areaRepeateMerge(vector<struct areaData> &data, int count);
+void hwHist(vector<struct areaData> data, int *mode, int count);	// ヒストグラム生成
+void areaRepeateMerge(vector<struct areaData> &data, int count);	// 重複範囲の統合
 
 int main( int argc, char** argv )
 {
 	cv::Mat image, image_bin;	// 元画像, 二値化画像
 	int minX, minY;	// 境界線追跡で得た座標の最小値
-	int maxX, maxY;	// 境界線追跡で得た座標の最大値
+	int maxX, maxY;	// 境界線追跡で得た座標の最大値d
 	int sx=0, sy=0;	// 境界線追跡開始点
 	int px, py;		// 境界線追跡中の現在地
 	int op = 2;		// 境界線追跡中の次に探索する方向
@@ -190,14 +190,58 @@ int main( int argc, char** argv )
 
 
 	////////////////////////////////////////////////////////////
-	//	重複範囲の統合										  //
+	//	重複範囲の統合-1 (最頻値算出用の統合)					  //
 	////////////////////////////////////////////////////////////
-	cout << "重複範囲の統合 開始" << endl;	// Debug message
+	int countT = count;
+	vector<struct areaData> dataT = data;
+	cout << "重複範囲の統合 開始" << endl;	// Debug message.
 
+	areaRepeateMerge(dataT, countT);
+
+	cout << "重複範囲の統合 終了" << endl;	// Debug message.
+
+	// 最終結果の格納と、数のカウント
+	for(int i=0; i<countT; i++){
+		cout << dataT[i].minX << " : " << dataT[i].maxX << endl;
+		if(dataT[i].Flag){
+			data2.push_back(dataT[i]);
+			count2++;
+		}
+	}
+
+	cout << "重複範囲統合後の候補数：" << count2 << endl;	// Debug message.
+
+	int mode[2] = {0};	// [0]:縦幅最頻値, [1]:横幅最頻値
+	hwHist(data2, mode, count2);	// ヒストグラムの出力と最頻値の算出
+	cout << "縦幅最頻値：" << mode[0] << endl;
+	cout << "横幅最頻値：" << mode[1] << endl;
+
+	for(int i=0; i<count; i++){
+		if((data[i].maxX - data[i].minX) >= (30 * 2.5))	data[i].Flag = 0;
+		if((data[i].maxY - data[i].minY) >= (30 * 2.5))	data[i].Flag = 0;
+	}
+
+	count2 = 0;
+	data2.clear();
+	// 最終結果の格納と、数のカウント
+	for(int i=0; i<countT; i++){
+		if(data[i].Flag){
+			data2.push_back(data[i]);
+			count2++;
+		}
+	}
+	cout << "大きすぎる候補の除外後：" << count2 << endl;	// Debug message.
+
+	// 二回目！
+	count = count2;
+	data.clear();
+	data = data2;
+	cout << "重複範囲の統合 開始" << endl;	// Debug message.
 	areaRepeateMerge(data, count);
+	cout << "重複範囲の統合 終了" << endl;	// Debug message.
 
-	cout << "重複範囲の統合 終了" << endl;	// Debug message
-
+	count2 = 0;
+	data2.clear();
 	// 最終結果の格納と、数のカウント
 	for(int i=0; i<count; i++){
 		if(data[i].Flag){
@@ -206,10 +250,7 @@ int main( int argc, char** argv )
 		}
 	}
 
-	printf("重複範囲を統合後：%d\n", count2);	// Debug
-
-	hwHist(data2, count2);
-
+	cout << "重複範囲統合後の候補数：" << count2 << endl;	// Debug message.
 
 	////////////////////////////////////////////////////////////
 	//	ディレクトリの有無の確認と生成、前回の結果を削除		  //
@@ -263,10 +304,9 @@ int main( int argc, char** argv )
 	cv::mixChannels(&image_bin, 1, &dst, 1, fromto, 3);
 
 	for(int i=0; i<count2; i++){
-		if((data2[i].maxX - data2[i].minX) == 5)	cv::rectangle(dst, cv::Point(data2[i].minX, data2[i].minY), cv::Point(data2[i].maxX, data2[i].maxY), cv::Scalar(0, 0, 200), 1, 4);
+		cv::rectangle(dst, cv::Point(data2[i].minX, data2[i].minY), cv::Point(data2[i].maxX, data2[i].maxY), cv::Scalar(0, 0, 200), 1, 4);
 	}
 
-	for(int i=0; i<count2; i++)	cout << i << " - " << data2[i].minX << " : " <<data2[i].maxX << endl;
 
 	////////////////////////////////////////////////////////////
 	//	最終結果の出力										  //
@@ -276,14 +316,14 @@ int main( int argc, char** argv )
 	return 0;
 }
 
-void hwHist(vector<struct areaData> data, int count){
+void hwHist(vector<struct areaData> data, int *mode, int count){
 	int maxHeight = 0;
 	int maxWidth	= 0;
+	int tmpMax = 0;
 	char dirname[] = "histimg_out";	// 結果の出力先ディレクト名
 	char outPath[64];		// 結果の「出力先ディレクト名＋ファイル名」一時保持変数
 	struct stat st;		// stat関数で得られる情報の保持変数
 	struct dirent *dist;	// ディレクトリ内のエントリー
-
 
 	////////////////////////////////////////////////////////////
 	//	前回の結果を削除										  //
@@ -353,6 +393,27 @@ void hwHist(vector<struct areaData> data, int count){
 	cv::imwrite(outPath, hist_img_row);
 	sprintf(outPath, "%s/histimg_col.bmp", dirname);
 	cv::imwrite(outPath, hist_img_col);
+
+
+	////////////////////////////////////////////////////////////
+	//	最頻値												  //
+	////////////////////////////////////////////////////////////
+	tmpMax = histHeight[0];
+	mode[0] = 0;
+	for(int i=1; i<maxHeight; i++){
+		if(tmpMax < histHeight[i]){
+			tmpMax = histHeight[i];
+			mode[0] = i;
+		}
+	}
+	tmpMax = histWidth[0];
+	mode[1] = 0;
+	for(int i=1; i<maxWidth; i++){
+		if(tmpMax < histWidth[i]){
+			tmpMax = histWidth[i];
+			mode[1] = i;
+		}
+	}
 
 
 	////////////////////////////////////////////////////////////
